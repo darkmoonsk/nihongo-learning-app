@@ -12,6 +12,9 @@
 
 # testing
 /coverage
+/playwright-report/
+/test-results/
+/app/fonts/*.ttf
 
 # next.js
 /.next/
@@ -32,6 +35,9 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+/public/audio/ja/*.tmp
+/public/audio/ja/.generation.lock
 
 # vercel
 .vercel
