@@ -8,6 +8,8 @@ const readings = new Map(
 );
 
 async function session(page: Page, makeMistake = false) {
+  await page.clock.install({ time: new Date("2030-01-01T00:00:00Z") });
+  await page.clock.pauseAt(new Date("2030-01-02T00:00:00Z"));
   for (let index = 0; index < 10; index++) {
     const glyph = await page.locator(".question-glyph").textContent();
     const reading = readings.get(glyph!);
@@ -35,17 +37,23 @@ async function session(page: Page, makeMistake = false) {
     for (const button of await choices.all())
       await expect(button).toBeDisabled();
     await expect(
-      page.getByRole("button", {
-        name: index === 9 ? "See results" : "Continue",
-        exact: true,
-      }),
-    ).toBeFocused();
-    await page.keyboard.press("Enter");
+      page.getByRole("button", { name: /^(Continue|See results)$/ }),
+    ).toHaveCount(0);
+    await page.clock.runFor(1999);
+    await expect(page.locator(".quiz-top strong")).toHaveText(
+      `${index + 1} / 10`,
+    );
+    await page.clock.runFor(1);
+    if (index < 9)
+      await expect(page.locator(".quiz-top strong")).toHaveText(
+        `${index + 2} / 10`,
+      );
   }
   await expect(page.locator(".result-page")).toBeVisible();
 }
 
 test("learn, complete, persist and review mistakes", async ({ page }) => {
+  test.setTimeout(60000);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/");
@@ -176,15 +184,13 @@ test("keyboard navigation, reduced motion and responsive layout", async ({
     page.getByRole("button", { name: "Back to learning" }),
   ).toBeFocused();
   await page.keyboard.press("Tab");
-  await expect(
-    page.getByRole("button", { name: /^Play pronunciation for/ }),
-  ).toBeFocused();
-  await page.keyboard.press("Tab");
   await expect(page.locator(".answer-button").first()).toBeFocused();
+  await page.clock.install({ time: new Date("2030-01-01T00:00:00Z") });
+  await page.clock.pauseAt(new Date("2030-01-02T00:00:00Z"));
   await page.keyboard.press("Enter");
-  await expect(
-    page.getByRole("button", { name: "Continue", exact: true }),
-  ).toBeFocused();
+  await expect(page.locator(".answer-feedback")).toBeVisible();
+  await page.clock.runFor(2000);
+  await expect(page.getByRole("main")).toBeFocused();
 });
 
 test("visual screens fit the viewport", async ({ page }, testInfo) => {
@@ -222,4 +228,38 @@ test("visual screens fit the viewport", async ({ page }, testInfo) => {
     await page.getByRole("button", { name: "Learn kana", exact: true }).click();
     await capture("small-mobile");
   }
+});
+
+test("leaving during feedback cancels advancement and a new session starts cleanly", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Continue learning", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Let’s practice" }).click();
+  await page.clock.install({ time: new Date("2030-01-01T00:00:00Z") });
+  await page.clock.pauseAt(new Date("2030-01-02T00:00:00Z"));
+  const first = page.locator(".answer-button").first();
+  await first.evaluate((button: HTMLButtonElement) => {
+    button.click();
+    button.click();
+  });
+  await expect(page.locator(".answer-feedback")).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => JSON.parse(localStorage.getItem("nihongo:progress:v1")!).answered,
+    ),
+  ).toBe(1);
+  await page.clock.runFor(1000);
+  await page
+    .getByRole("button", { name: "Back to learning", exact: true })
+    .click();
+  await page.clock.runFor(3000);
+  await expect(page.locator(".quiz-page, .result-page")).toHaveCount(0);
+  await page.getByRole("button", { name: /The vowels/ }).click();
+  await page.getByRole("button", { name: "Let’s practice" }).click();
+  await page.clock.runFor(3000);
+  await expect(page.locator(".quiz-top strong")).toHaveText("1 / 10");
+  await expect(page.locator(".answer-feedback")).toHaveCount(0);
 });

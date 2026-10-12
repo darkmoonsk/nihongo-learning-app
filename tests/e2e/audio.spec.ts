@@ -34,9 +34,7 @@ async function openLesson(page: Page) {
     .click();
 }
 
-test("manual lists and one autoplay per question, including feedback and navigation", async ({
-  page,
-}) => {
+test("audio is available only in the lesson presentation", async ({ page }) => {
   await mockAudio(page);
   await openLesson(page);
   const sounds = page.getByRole("button", { name: /^Play pronunciation for/ });
@@ -48,28 +46,22 @@ test("manual lists and one autoplay per question, including feedback and navigat
   await sounds.first().click();
   expect(await page.evaluate(() => window.audioTest.calls.length)).toBe(2);
   await page.getByRole("button", { name: "Let’s practice" }).click();
-  expect(await page.evaluate(() => window.audioTest.calls.length)).toBe(3);
-  const glyph = await page.locator(".question-glyph").textContent();
-  await expect(sounds).toHaveAttribute(
-    "aria-label",
-    `Play pronunciation for ${glyph}`,
-  );
-  await page.locator(".answer-button").first().click();
-  expect(await page.evaluate(() => window.audioTest.calls.length)).toBe(3);
-  await sounds.click();
-  expect(await page.evaluate(() => window.audioTest.calls.length)).toBe(4);
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  expect(await page.evaluate(() => window.audioTest.calls.length)).toBe(5);
+  await expect(sounds).toHaveCount(0);
+  expect(
+    await page.evaluate(() => window.audioTest.element?.getAttribute("src")),
+  ).toBeNull();
+  await page.clock.install({ time: new Date("2030-01-01T00:00:00Z") });
+  await page.clock.pauseAt(new Date("2030-01-02T00:00:00Z"));
+  for (let index = 0; index < 10; index++) {
+    await page.locator(".answer-button").first().click();
+    await expect(page.locator(".answer-feedback")).toBeVisible();
+    await page.clock.runFor(2000);
+  }
+  await expect(page.locator(".result-page")).toBeVisible();
+  await expect(sounds).toHaveCount(0);
   await page.getByRole("button", { name: "Kana chart", exact: true }).click();
-  expect(
-    await page.evaluate(() => window.audioTest.element?.getAttribute("src")),
-  ).toBeNull();
-  expect(await page.evaluate(() => window.audioTest.calls.length)).toBe(5);
-  await sounds.first().click();
-  await page.getByLabel("Find a character or sound").fill("ka");
-  expect(
-    await page.evaluate(() => window.audioTest.element?.getAttribute("src")),
-  ).toBeNull();
+  await expect(sounds).toHaveCount(0);
+  expect(await page.evaluate(() => window.audioTest.calls.length)).toBe(2);
   await page.setViewportSize({ width: 320, height: 720 });
   expect(
     await page.evaluate(
@@ -78,17 +70,20 @@ test("manual lists and one autoplay per question, including feedback and navigat
   ).toBe(false);
 });
 
-test("blocked autoplay offers manual recovery and hidden tabs stop playback", async ({
+test("blocked lesson audio offers manual recovery and hidden tabs stop playback", async ({
   page,
 }) => {
   await mockAudio(page, true);
   await openLesson(page);
-  await page.getByRole("button", { name: "Let’s practice" }).click();
+  const sound = page
+    .getByRole("button", { name: /^Play pronunciation for/ })
+    .first();
+  await sound.click();
   await expect(page.getByRole("status")).toContainText("Tap the sound button");
   await page.evaluate(() => {
     window.audioTest.blocked = false;
   });
-  await page.getByRole("button", { name: /^Play pronunciation for/ }).click();
+  await sound.click();
   await expect(page.locator(".audio-button.is-playing")).toHaveCount(1);
   await page.evaluate(() => {
     Object.defineProperty(document, "hidden", {
@@ -103,19 +98,22 @@ test("blocked autoplay offers manual recovery and hidden tabs stop playback", as
   ).toBeNull();
 });
 
-test("missing audio reports an error without preventing answers", async ({
-  page,
-}) => {
+test("missing lesson audio does not prevent practicing", async ({ page }) => {
   await page.route("**/audio/ja/*.mp3", (route) =>
     route.fulfill({ status: 404, body: "Missing" }),
   );
   await openLesson(page);
-  await page.getByRole("button", { name: "Let’s practice" }).click();
+  await page
+    .getByRole("button", { name: /^Play pronunciation for/ })
+    .first()
+    .click();
   await expect(page.getByRole("status")).toContainText("Audio unavailable");
+  await page.getByRole("button", { name: "Let’s practice" }).click();
+  await page.clock.install({ time: new Date("2030-01-01T00:00:00Z") });
+  await page.clock.pauseAt(new Date("2030-01-02T00:00:00Z"));
   await page.locator(".answer-button").first().click();
-  await expect(
-    page.getByRole("button", { name: "Continue", exact: true }),
-  ).toBeEnabled();
+  await page.clock.runFor(2000);
+  await expect(page.locator(".quiz-top strong")).toHaveText("2 / 10");
 });
 
 test("a generated local MP3 loads and plays in the browser", async ({
