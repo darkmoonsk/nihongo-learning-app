@@ -13,8 +13,6 @@ export const copy = {
     wordPrompt: "How do you read this word?",
     correct: "You got it!",
     incorrect: "A little practice makes it stick.",
-    next: "Continue",
-    finish: "See results",
   },
   storage:
     "Your browser cannot save progress right now. You can keep learning, but this session’s progress will be lost when you leave.",

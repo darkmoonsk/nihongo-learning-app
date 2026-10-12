@@ -113,6 +113,7 @@ export default function NihongoApp({
   const [alphabet, setCurrentAlphabet] = useState<Alphabet>("hiragana");
   const [lesson, setLesson] = useState<StudyGroup>(groups[0]);
   const [session, setSession] = useState<Session | null>(null);
+  const answeredQuestionRef = useRef<Session | null>(null);
   const [search, setSearchValue] = useState("");
   const [category, setCurrentCategory] = useState("all");
   const audio = useAudio(audioSources);
@@ -143,7 +144,6 @@ export default function NihongoApp({
     );
   }
   const mainRef = useRef<HTMLElement>(null);
-  const continueRef = useRef<HTMLButtonElement>(null);
   const questionIndex = session?.index ?? 0;
   const previousLocation = useRef({ view, questionIndex });
   useEffect(() => {
@@ -155,10 +155,22 @@ export default function NihongoApp({
     previousLocation.current = { view, questionIndex };
     mainRef.current?.focus();
   }, [view, questionIndex]);
-  const choice = session?.choice;
+  const stopAudio = audio.stop;
   useEffect(() => {
-    if (choice) continueRef.current?.focus();
-  }, [choice]);
+    if (view !== "quiz" || !session || session.choice === null) return;
+    const timer = window.setTimeout(() => {
+      if (session.index === session.questions.length - 1) {
+        update((previous) =>
+          completeSession(previous, session.groupId, session.answers),
+        );
+        stopAudio();
+        setCurrentView("result");
+      } else {
+        setSession({ ...session, index: session.index + 1, choice: null });
+      }
+    }, 2000);
+    return () => window.clearTimeout(timer);
+  }, [view, session, update, stopAudio]);
 
   const completed = new Set(progress.completedGroupIds);
   const alphabetGroups = groups.filter((group) => group.alphabet === alphabet);
@@ -212,10 +224,15 @@ export default function NihongoApp({
       answers: [],
     });
     setView("quiz");
-    audio.play(questions[0].item.id);
   }
   function answer(reading: string) {
-    if (!session || session.choice !== null) return;
+    if (
+      !session ||
+      session.choice !== null ||
+      answeredQuestionRef.current === session
+    )
+      return;
+    answeredQuestionRef.current = session;
     const item = session.questions[session.index].item;
     const response = { itemId: item.id, correct: reading === item.reading };
     update((previous) => recordAnswer(previous, response, session.review));
@@ -224,18 +241,6 @@ export default function NihongoApp({
       choice: reading,
       answers: [...session.answers, response],
     });
-  }
-  function nextQuestion() {
-    if (!session || session.choice === null) return;
-    if (session.index === session.questions.length - 1) {
-      update((previous) =>
-        completeSession(previous, session.groupId, session.answers),
-      );
-      setView("result");
-    } else {
-      setSession({ ...session, index: session.index + 1, choice: null });
-      audio.play(session.questions[session.index + 1].item.id);
-    }
   }
   const question = session?.questions[session.index];
   const activeGroup = session?.groupId ? groupById.get(session.groupId) : null;
@@ -637,7 +642,6 @@ export default function NihongoApp({
               >
                 {question.item.glyph}
               </div>
-              {pronunciation(question.item)}
             </div>
             <div
               className="answer-options"
@@ -687,14 +691,6 @@ export default function NihongoApp({
                     <b>{question.item.reading}</b>.
                   </p>
                 </div>
-                <button
-                  ref={continueRef}
-                  className="button primary"
-                  onClick={nextQuestion}
-                >
-                  {session.index === 9 ? copy.quiz.finish : copy.quiz.next}
-                  <Arrow />
-                </button>
               </div>
             ) : (
               <p className="quiz-hint">
@@ -753,7 +749,6 @@ export default function NihongoApp({
                       <div key={id}>
                         <span lang="ja">{item.glyph}</span>
                         <strong>{item.reading}</strong>
-                        {pronunciation(item)}
                       </div>
                     );
                   })}
@@ -903,7 +898,6 @@ export default function NihongoApp({
                         >
                           <span lang="ja">{item.glyph}</span>
                           <strong>{item.reading}</strong>
-                          {pronunciation(item)}
                         </div>
                       ))}
                     </div>
